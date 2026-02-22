@@ -66,7 +66,7 @@ pillow
 ### Installation
 
 ```bash
-git clone <your-repo>
+git clone https://github.com/If-Master/EscapeItems-Discord-Bot
 cd escapeitems-bot
 pip install -r requirements.txt
 ```
