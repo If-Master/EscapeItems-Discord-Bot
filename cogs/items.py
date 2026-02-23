@@ -12,7 +12,7 @@ from database import users as users_db
 from utils.formatting import build_item_embed
 from views.item_views import CategoryView, ItemSelectionView
 from utils.security import secure_check
-
+import asyncio
 
 def _match_confidence(query: str, result_name: str) -> int:
     q = query.lower().strip()
@@ -52,9 +52,13 @@ class ItemsCog(commands.Cog):
 
         item = await items_db.get_item(name)
         if item:
-            await interaction.followup.send(
-                embed=build_item_embed(item, interaction.user.name)
-            )
+            from utils.renderer import render_item_panel
+            buf = render_item_panel(item)
+            if buf:
+                await interaction.followup.send(file=discord.File(buf, "item.png"))
+            else:
+                await interaction.followup.send(embed=build_item_embed(item, interaction.user.name))
+
             return
 
         similar = await items_db.search_similar_items(name)
@@ -68,12 +72,18 @@ class ItemsCog(commands.Cog):
         if len(similar) == 1:
             item = await items_db.get_item(similar[0]["name"])
             if item:
+                from utils.renderer import render_item_panel
+                from functools import partial
+
                 pct = _match_confidence(name, similar[0]["name"])
-                embed = build_item_embed(item, interaction.user.name)
-                embed.set_footer(
-                    text=f"[{pct}% likely you meant this]  •  Requested by {interaction.user.name}"
-                )
-                await interaction.followup.send(embed=embed)
+                buf = await asyncio.get_event_loop().run_in_executor(None, partial(render_item_panel, item))
+                if buf:
+                    await interaction.followup.send(
+                        content=f"*{pct}% match*",
+                        file=discord.File(buf, "item.png")
+                    )
+                else:
+                    await interaction.followup.send(embed=build_item_embed(item, interaction.user.name))
                 return
 
         embed = discord.Embed(

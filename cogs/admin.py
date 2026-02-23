@@ -10,6 +10,7 @@ from database import items as items_db
 from database import users as users_db
 from utils.checks import require_admin
 from utils.security import secure_check
+from utils.renderer import render_item_data_sheet
 
 
 class AddItemModal(discord.ui.Modal, title="Add Item"):
@@ -68,13 +69,13 @@ class ModifyItemModal(discord.ui.Modal, title="Modify Item"):
             await interaction.response.send_message("No fields provided to update.", ephemeral=True)
             return
 
-        if await items_db.update_item(name, **updates):
-            embed = discord.Embed(title="Item Updated", description=f"**{name}** updated.",
-                                  color=discord.Color.green())
-            embed.add_field(name="Changed Fields", value=", ".join(updates.keys()), inline=False)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-        else:
-            await interaction.response.send_message("Update failed.", ephemeral=True)
+        item = await items_db.get_item(name)
+        if item:
+            buf = await asyncio.get_event_loop().run_in_executor(
+                None, partial(render_item_data_sheet, item)
+            )
+            if buf:
+                await interaction.followup.send(file=discord.File(buf, "item_data.png"), ephemeral=True)
 
 
 class RemoveItemModal(discord.ui.Modal, title="Remove Item"):

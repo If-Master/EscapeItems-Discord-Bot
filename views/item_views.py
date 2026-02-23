@@ -9,6 +9,9 @@ from database import items as items_db
 from utils.formatting import build_item_embed
 from utils.renderer import render_items_list
 from config import ITEM_CATEGORIES
+import asyncio
+from functools import partial
+from utils.renderer import render_item_panel
 
 class CategorySelect(discord.ui.Select):
     def __init__(self):
@@ -121,17 +124,13 @@ class ItemSelectionSelect(discord.ui.Select):
             items=[item],
             detail_mode=True,
         )
+        buf = await asyncio.get_event_loop().run_in_executor(None, partial(render_item_panel, item))
         if buf:
-            embed = discord.Embed(color=discord.Color.gold())
-            embed.set_image(url="attachment://item_detail.png")
-            await interaction.followup.send(
-                embed=embed,
-                file=discord.File(buf, filename="item_detail.png"),
-            )
+            await interaction.followup.send(file=discord.File(buf, "item.png"))
         else:
-            await interaction.followup.send(
-                embed=build_item_embed(item, interaction.user.name)
-            )
+            await interaction.followup.send(embed=build_item_embed(item, interaction.user.name))
+
+
 
 
 class ItemSelectionView(discord.ui.View):
