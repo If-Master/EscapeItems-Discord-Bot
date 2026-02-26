@@ -177,7 +177,44 @@ def render_items_list(title, subtitle, items, detail_mode=False):
 
 
 def _panel_draw_bg(img, draw, x, y, w, h):
-    draw.rectangle([x, y, x + w - 1, y + h - 1], fill=(22, 23, 28, 255))
+    grad_stops = [
+        (0.00, (0,  183, 255)),
+        (0.12, (0,  101, 195)),
+        (0.45, (0,  162, 173)),
+        (0.67, (0,  255, 208)),
+        (1.00, (0,  251, 255)),
+    ]
+    dark  = (22, 23, 28)
+    blend = 0.12 
+    grad = Image.new("RGBA", (w, h))
+    gdraw = ImageDraw.Draw(grad)
+    diag = w + h - 2
+    for row in range(h):
+        t0 = row / diag if diag else 0
+        t1 = (row + w - 1) / diag if diag else 1
+        def stop_color(t):
+            c0, c1, f = grad_stops[0][1], grad_stops[-1][1], 0.0
+            for i in range(len(grad_stops) - 1):
+                s0, s1 = grad_stops[i][0], grad_stops[i+1][0]
+                if s0 <= t <= s1:
+                    f = (t - s0) / (s1 - s0)
+                    c0, c1 = grad_stops[i][1], grad_stops[i+1][1]
+                    break
+            r = int(dark[0] * (1-blend) + (c0[0]*(1-f)+c1[0]*f) * blend)
+            g = int(dark[1] * (1-blend) + (c0[1]*(1-f)+c1[1]*f) * blend)
+            b = int(dark[2] * (1-blend) + (c0[2]*(1-f)+c1[2]*f) * blend)
+            return (r, g, b, 255)
+        cl = stop_color(t0)
+        cr = stop_color(t1)
+        for col in range(w):
+            f = col / (w - 1) if w > 1 else 0
+            grad.putpixel((col, row), (
+                int(cl[0]*(1-f)+cr[0]*f),
+                int(cl[1]*(1-f)+cr[1]*f),
+                int(cl[2]*(1-f)+cr[2]*f),
+                255
+            ))
+    img.paste(grad, (x, y))
 
     draw.rectangle([x, y, x + w - 1, y + h - 1],
                    outline=(12, 12, 12, 255), width=_px(2))
@@ -333,7 +370,6 @@ def _wrap_text(text: str, draw, font, max_width: int) -> list[str]:
 
 
 def _ench_pill_bg(color: tuple, alpha: int = 30, bg: tuple = (22, 23, 28)) -> tuple:
-    """Pre-blend a semi-transparent tint over the panel bg into a solid opaque colour."""
     a = alpha / 255.0
     return (
         int(bg[0] * (1 - a) + color[0] * a),
@@ -347,25 +383,33 @@ def _ench_color(ench: str) -> tuple:
     e = ench.lower()
     if any(k in e for k in ("sharpness", "power", "smite", "bane", "fire aspect", "impaling")):
         return (200, 100, 255, 255)
-    if any(k in e for k in ("mending", "fortune", "looting", "efficiency", "silk touch")):
+    if any(k in e for k in ("mending", "fortune", "looting", "efficiency", "silk touch", "luck of the sea", "lure")):
         return (80, 200, 255, 255)
-    if any(k in e for k in ("protection", "feather", "thorns", "respiration", "aqua", "depth")):
+    if any(k in e for k in ("protection", "feather", "thorns", "respiration", "aqua affinity", "depth strider", "soul speed", "swift sneak")):
         return (100, 220, 120, 255)
     if any(k in e for k in ("unbreaking", "infinity", "multishot", "quick charge", "piercing")):
         return (255, 200, 80, 255)
+    if any(k in e for k in ("curse",)):
+        return (230, 60, 60, 255)
+    if any(k in e for k in ("knockback", "sweeping", "punch")):
+        return (255, 140, 40, 255)
+    if any(k in e for k in ("loyalty", "riptide", "channeling", "impaling")):
+        return (80, 160, 255, 255)
+    if any(k in e for k in ("flame", "fire protection", "blast protection")):
+        return (255, 100, 50, 255)
+    if any(k in e for k in ("frost walker",)):
+        return (140, 220, 255, 255)
+    if any(k in e for k in ("binding",)):
+        return (200, 130, 170, 255)
     return (200, 200, 215, 255)
 
 
 def _draw_slot_with_image(img, draw, item_name: str, image_url: str,
                           sx: int, sy: int, slot_size: int, glow: bool = False):
-    if glow:
-        for gi in range(5):
-            alpha = max(12, 65 - gi * 14)
-            draw.rectangle(
-                [sx - _px(gi+1), sy - _px(gi+1), sx + slot_size + _px(gi+1), sy + slot_size + _px(gi+1)],
-                fill=(100, 60, 210, alpha)
-            )
+   
     _panel_slot(draw, sx, sy, slot_size)
+    draw.rectangle([sx - 2, sy - 2, sx + slot_size + 2, sy + slot_size + 2],
+                   outline=(40, 40, 40, 255), width=2)
     pad  = _px(3)
     isz  = slot_size - pad * 2
     fetched = None
@@ -379,7 +423,30 @@ def _draw_slot_with_image(img, draw, item_name: str, image_url: str,
         _draw_generic_fallback(img, draw, item_name, sx + pad, sy + pad, isz)
 
 
-def render_item_panel(item: dict) -> io.BytesIO | None:
+def _draw_image_frameless(img, draw, item_name: str, image_url: str,
+                          sx: int, sy: int, slot_size: int, glow: bool = False):
+    if glow:
+        for gi in range(3):
+            alpha = max(20, 80 - gi * 30)
+            offset = 3 - gi
+            draw.rectangle(
+                [sx - offset, sy - offset, sx + slot_size + offset, sy + slot_size + offset],
+                fill=(0, 0, 0, alpha)
+            )
+    draw.rectangle([sx - 2, sy - 2, sx + slot_size + 2, sy + slot_size + 2],
+                   outline=(40, 40, 40, 255), width=2)
+    fetched = None
+    if image_url:
+        fetched = _fetch_image(image_url, (slot_size, slot_size))
+    if fetched is None and item_name:
+        fetched = _fetch_item_texture(item_name, slot_size)
+    if fetched:
+        img.paste(fetched, (sx, sy), fetched)
+    elif item_name:
+        _draw_generic_fallback(img, draw, item_name, sx, sy, slot_size)
+
+
+def render_item_panel(item: dict) -> "io.BytesIO | None":
     if not PILLOW_AVAILABLE:
         return None
 
@@ -426,13 +493,16 @@ def render_item_panel(item: dict) -> io.BytesIO | None:
     dummy_img  = Image.new("RGBA", (1, 1))
     dummy_draw = ImageDraw.Draw(dummy_img)
 
+    CRAFT_SHIFT_LEFT = -_px(6)  
+    ARROW_SHIFT_LEFT = _px(6)  
+
     if craftable:
         CELL    = _px(18)
         GP      = _px(3)
         GRID_W  = CELL * 3 + GP * 4
         GRID_H  = CELL * 3 + GP * 4
-        ARW     = _px(10)
-        OUT     = CELL + _px(8)
+        ARW     = _px(13)
+        OUT     = CELL + _px(4)
         RIGHT_W = GRID_W + ARW + OUT + _px(10)
         LEFT_W  = PANEL_W - RIGHT_W - INNER * 3
 
@@ -456,7 +526,7 @@ def render_item_panel(item: dict) -> io.BytesIO | None:
         body_h  = body_section_h + ing_h + _px(8)
         PANEL_H = _px(12) + _px(14) + _px(4) + body_h + _px(10)
     else:
-        IMG_SLOT = _px(60)
+        IMG_SLOT = _px(80)
         RIGHT_W  = IMG_SLOT + _px(8)
         LEFT_W   = PANEL_W - RIGHT_W - INNER * 3
 
@@ -507,9 +577,9 @@ def render_item_panel(item: dict) -> io.BytesIO | None:
     y += _px(5)
 
     if craftable:
-        rx = PX + PANEL_W - INNER - RIGHT_W
+        rx = PX + PANEL_W - INNER - RIGHT_W - CRAFT_SHIFT_LEFT
 
-        body_y = y  
+        body_y = y
 
         left_content_h = 0
         if info:
@@ -568,18 +638,19 @@ def render_item_panel(item: dict) -> io.BytesIO | None:
                 cell_v = grid[row][col] if row < len(grid) and col < len(grid[row]) else None
                 _draw_slot_with_image(img, draw, cell_v or "", "", sx, sy, CELL)
 
-        ax  = rx + GRID_W + _px(4)
+        ax  = rx + GRID_W + _px(9) - ARROW_SHIFT_LEFT
         ay  = gy + GRID_H // 2
-        pts = [ax, ay - _px(3),
-               ax + ARW - _px(4), ay - _px(3),
-               ax + ARW - _px(4), ay - _px(6),
-               ax + ARW, ay,
-               ax + ARW - _px(4), ay + _px(6),
-               ax + ARW - _px(4), ay + _px(3),
-               ax, ay + _px(3)]
+        shaft_join = ax + ARW - _px(5)
+        pts = [ax,          ay - _px(3),
+               shaft_join,  ay - _px(3),
+               shaft_join,  ay - _px(7),
+               ax + ARW,    ay,
+               shaft_join,  ay + _px(7),
+               shaft_join,  ay + _px(3),
+               ax,          ay + _px(3)]
         draw.polygon(pts, fill=(180, 185, 200, 255))
 
-        ox = ax + ARW + _px(4)
+        ox = ax + ARW + _px(7)
         oy = gy + (GRID_H - OUT) // 2
         _draw_slot_with_image(img, draw, name, image_url, ox, oy, OUT, glow=True)
 
@@ -589,6 +660,12 @@ def render_item_panel(item: dict) -> io.BytesIO | None:
 
         draw.text((lx, ing_section_y), "Ingredients", font=f_header, fill=(180, 185, 200, 255))
         ing_section_y += _px(8)
+
+        _out_label_measure  = f"{output_count}×  {output_item}"
+        _out_tw_measure     = int(draw.textlength(_out_label_measure, font=f_ing))
+        _out_icon_w_measure = _px(5) + _px(3)
+        _out_x_measure      = PX + PANEL_W - INNER - (_out_icon_w_measure + _out_tw_measure)
+        _div_x_measure      = _out_x_measure - _px(8)
 
         ing_x = lx
         ing_row_h = _px(7)
@@ -602,10 +679,12 @@ def render_item_panel(item: dict) -> io.BytesIO | None:
             label = f"{count}×  {ingredient}"
             label_w = int(draw.textlength(label, font=f_ing))
             draw.text((text_x, ing_section_y), f"{count}×", font=f_ing, fill=(255, 200, 80, 255))
+            ing_name_max = _div_x_measure - text_x - int(draw.textlength(f"{count}×  ", font=f_ing)) - _px(6)
+            ing_name = _truncate(ingredient, draw, f_ing, ing_name_max)
             draw.text((text_x + int(draw.textlength(f"{count}×  ", font=f_ing)), ing_section_y),
-                      ingredient, font=f_ing, fill=(210, 212, 225, 255))
+                      ing_name, font=f_ing, fill=(210, 212, 225, 255))
             ing_x += label_w + _px(5) + _px(3) + _px(10)
-            max_x = PX + PANEL_W - INNER - _px(60)  
+            max_x = _div_x_measure - _px(10)
             if ing_x + int(draw.textlength(f"1×  {'X' * 12}", font=f_ing)) > max_x:
                 ing_x = lx
                 ing_section_y += ing_row_h
@@ -617,7 +696,7 @@ def render_item_panel(item: dict) -> io.BytesIO | None:
         out_x = PX + PANEL_W - INNER - out_total_w
 
         div_x = out_x - _px(8)
-        out_y_base = ing_section_y - _px(8) 
+        out_y_base = ing_section_y - _px(8)
         draw.line([(div_x, out_y_base), (div_x, out_y_base + _px(14))],
                   fill=(60, 65, 78, 255), width=_px(1))
 
@@ -635,11 +714,13 @@ def render_item_panel(item: dict) -> io.BytesIO | None:
                   output_item, font=f_ing, fill=(210, 212, 225, 255))
 
     else:
-        IMG_SLOT = _px(60)
+        IMG_SLOT = _px(80)
         rx       = PX + PANEL_W - INNER - IMG_SLOT
         LEFT_W   = rx - lx - _px(6)
 
-        _draw_slot_with_image(img, draw, name, image_url, rx, y, IMG_SLOT, glow=True)
+        _draw_image_frameless(img, draw, name, image_url, rx, y, IMG_SLOT, glow=True)
+        draw.rectangle([rx - 2, y - 2, rx + IMG_SLOT + 2, y + IMG_SLOT + 2],
+                       outline=(0, 0, 0, 255), width=2)
 
         left_y = y
 
