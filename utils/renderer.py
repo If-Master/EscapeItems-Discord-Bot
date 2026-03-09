@@ -279,11 +279,38 @@ _WIKI_NAME_OVERRIDES: dict[str, str] = {
     "expensive elytra": "Elytra",
 }
 
+_MC_ASSET_BASE = (
+    "https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets"
+    "/1.21.4/assets/minecraft/textures/item/{}.png"
+)
+
 
 def _name_to_wiki_url(item_name: str) -> str:
     key       = item_name.strip().lower()
     wiki_name = _WIKI_NAME_OVERRIDES.get(key) or item_name.strip().title().replace(" ", "_")
     return f"https://minecraft.wiki/w/Special:FilePath/{wiki_name}.png"
+
+
+_MC_BLOCK_BASE = (
+    "https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets"
+    "/1.21.4/assets/minecraft/textures/block/{}.png"
+)
+
+
+def _name_to_mc_id(item_name: str) -> str:
+    import re
+    cleaned = re.sub(
+        r"\s*(recipe|\(s\)|\(es\)|s\b|es\b)",
+        "", item_name, flags=re.IGNORECASE,
+    ).strip()
+    return cleaned.lower().replace(" ", "_").replace("-", "_")
+
+
+def _try_mc_urls(mc_id: str, size: tuple[int, int]) -> "Image.Image | None":
+    result = _fetch_image(_MC_ASSET_BASE.format(mc_id), size)
+    if result is None:
+        result = _fetch_image(_MC_BLOCK_BASE.format(mc_id), size)
+    return result
 
 
 def _fetch_item_texture(item_name: str, size: int) -> "Image.Image | None":
@@ -294,8 +321,22 @@ def _fetch_item_texture(item_name: str, size: int) -> "Image.Image | None":
             return None
         return cached.resize((size, size), Image.NEAREST)
 
-    url = _name_to_wiki_url(item_name)
-    result = _fetch_image(url, (size, size))
+    sz     = (size, size)
+    mc_id  = _name_to_mc_id(item_name)
+    result = _try_mc_urls(mc_id, sz)
+
+    if result is None:
+        try:
+            from utils.mc_cache import find_mc_item_sync
+            mc = find_mc_item_sync(item_name, threshold=0.52)
+            if mc and mc["name"] != mc_id:
+                result = _try_mc_urls(mc["name"], sz)
+        except Exception:
+            pass
+
+    if result is None:
+        result = _fetch_image(_name_to_wiki_url(item_name), sz)
+
     _TEXTURE_CACHE[key] = result.resize((64, 64), Image.NEAREST) if result else None
     return result
 
@@ -676,20 +717,20 @@ def render_item_panel(item: dict) -> "io.BytesIO | None":
                 text_x = ing_x + _px(5) + _px(3)
             else:
                 text_x = ing_x
-            label = f"{count}×  {ingredient}"
+            label = f"{count}   {ingredient}"
             label_w = int(draw.textlength(label, font=f_ing))
-            draw.text((text_x, ing_section_y), f"{count}×", font=f_ing, fill=(255, 200, 80, 255))
-            ing_name_max = _div_x_measure - text_x - int(draw.textlength(f"{count}×  ", font=f_ing)) - _px(6)
+            draw.text((text_x, ing_section_y), f"{count} ", font=f_ing, fill=(255, 200, 80, 255))
+            ing_name_max = _div_x_measure - text_x - int(draw.textlength(f"{count}   ", font=f_ing)) - _px(6)
             ing_name = _truncate(ingredient, draw, f_ing, ing_name_max)
-            draw.text((text_x + int(draw.textlength(f"{count}×  ", font=f_ing)), ing_section_y),
+            draw.text((text_x + int(draw.textlength(f"{count}   ", font=f_ing)), ing_section_y),
                       ing_name, font=f_ing, fill=(210, 212, 225, 255))
             ing_x += label_w + _px(5) + _px(3) + _px(10)
             max_x = _div_x_measure - _px(10)
-            if ing_x + int(draw.textlength(f"1×  {'X' * 12}", font=f_ing)) > max_x:
+            if ing_x + int(draw.textlength(f"1x  {'X' * 12}", font=f_ing)) > max_x:
                 ing_x = lx
                 ing_section_y += ing_row_h
 
-        out_label  = f"{output_count}×  {output_item}"
+        out_label  = f"{output_count}x  {output_item}"
         out_tw     = int(draw.textlength(out_label, font=f_ing))
         out_icon_w = _px(5) + _px(3)
         out_total_w = out_icon_w + out_tw
@@ -709,8 +750,8 @@ def render_item_panel(item: dict) -> "io.BytesIO | None":
             out_text_x = out_x + out_icon_w
         else:
             out_text_x = out_x
-        draw.text((out_text_x, out_y), f"{output_count}×", font=f_ing, fill=(100, 210, 120, 255))
-        draw.text((out_text_x + int(draw.textlength(f"{output_count}×  ", font=f_ing)), out_y),
+        draw.text((out_text_x, out_y), f"{output_count} ", font=f_ing, fill=(100, 210, 120, 255))
+        draw.text((out_text_x + int(draw.textlength(f"{output_count} ", font=f_ing)), out_y),
                   output_item, font=f_ing, fill=(210, 212, 225, 255))
 
     else:
@@ -909,5 +950,33 @@ def render_item_data_sheet(item: dict) -> io.BytesIO | None:
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
+def render_items_combined(items: list[dict]) -> 'io.BytesIO | None':
+    if not PILLOW_AVAILABLE:
+        return None
+
+    panels: list[Image.Image] = []
+    for item in items[:5]:
+        buf = render_item_panel(item)
+        if buf:
+            panels.append(Image.open(buf).convert('RGBA'))
+
+    if not panels:
+        return None
+
+    gap     = 10
+    total_w = max(p.width for p in panels)
+    total_h = sum(p.height for p in panels) + gap * (len(panels) - 1)
+
+    combined = Image.new('RGBA', (total_w, total_h), (0, 0, 0, 0))
+    y_offset = 0
+    for panel in panels:
+        combined.paste(panel, (0, y_offset), panel)
+        y_offset += panel.height + gap
+
+    buf = io.BytesIO()
+    combined.save(buf, format='PNG')
     buf.seek(0)
     return buf

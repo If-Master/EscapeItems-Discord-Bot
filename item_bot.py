@@ -15,6 +15,7 @@ COGS = [
     "cogs.items",
     "cogs.admin",
     "cogs.farm",
+    "cogs.store",
 ]
 
 
